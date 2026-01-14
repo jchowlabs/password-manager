@@ -315,7 +315,6 @@ class DynamoDBPasswords:
             'website': entry.website,
             'username': entry.username,
             'password': entry.password,  # Already encrypted client-side
-            'notes': entry.notes or '',  # Already encrypted client-side
             'created_at': timestamp,
             'updated_at': timestamp
         }
@@ -476,7 +475,6 @@ class PasswordEntry(BaseModel):
     website: str
     username: str
     password: str
-    notes: Optional[str] = None
 
 class PasswordGenerate(BaseModel):
     length: int = 16
@@ -760,7 +758,6 @@ async def list_passwords(current_user = Depends(get_current_user_required)):
             'website': p['website'],
             'username': p['username'],
             'password': p['password'],  # Still encrypted
-            'notes': p.get('notes', ''),  # Still encrypted
             'created_at': p['created_at']
         }
         for p in passwords

@@ -237,7 +237,6 @@ function setupEventListeners() {
     });
     document.getElementById('recordLogoutBtn').addEventListener('click', handleLogout);
     document.getElementById('savePasswordBtn').addEventListener('click', handleSavePassword);
-    document.getElementById('togglePasswordVisibility').addEventListener('click', handleTogglePasswordVisibility);
     document.getElementById('generatePasswordIcon').addEventListener('click', handleGenerateForRecord);
     document.getElementById('backToVaultBtn').addEventListener('click', () => {
         showView('signedIn');
@@ -529,19 +528,9 @@ function clearRecordForm() {
     document.getElementById('saveWebsite').value = '';
     document.getElementById('saveUsername').value = '';
     document.getElementById('savePassword').value = '';
-    document.getElementById('savePassword').type = 'password';
     document.getElementById('saveError').textContent = '';
     document.getElementById('saveSuccess').textContent = '';
     currentRecordId = null; // Clear the current record ID
-}
-
-function handleTogglePasswordVisibility() {
-    const passwordInput = document.getElementById('savePassword');
-    if (passwordInput.type === 'password') {
-        passwordInput.type = 'text';
-    } else {
-        passwordInput.type = 'password';
-    }
 }
 
 async function handleGenerateForRecord() {
@@ -657,7 +646,6 @@ async function viewRecord(passwordId, passwords) {
         document.getElementById('saveWebsite').value = password.website;
         document.getElementById('saveUsername').value = password.username;
         document.getElementById('savePassword').value = decryptedPassword;
-        document.getElementById('savePassword').type = 'text'; // Show password by default
         document.getElementById('saveError').textContent = '';
         document.getElementById('saveSuccess').textContent = '';
         
@@ -700,6 +688,16 @@ async function handleSavePassword() {
     try {
         // Encrypt password on client side
         const encryptedPassword = await CryptoManager.encrypt(password, encryptionKey);
+        
+        // If updating an existing record, delete the old one first
+        if (currentRecordId) {
+            await fetch(`${API_BASE_URL}/api/vault/${currentRecordId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${authToken}`
+                }
+            });
+        }
         
         const response = await fetch(`${API_BASE_URL}/api/vault/save`, {
             method: 'POST',
