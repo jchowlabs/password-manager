@@ -107,6 +107,7 @@ let currentUser = null;
 let encryptionKey = null; // Client-side encryption key derived from master password
 let loginSessionToken = null; // Temporary token for login verification
 let loginPassword = null; // Store password temporarily for encryption key derivation
+let currentRecordId = null; // Track the current record being viewed/edited
 
 // DOM Elements
 const views = {
@@ -531,6 +532,7 @@ function clearRecordForm() {
     document.getElementById('savePassword').type = 'password';
     document.getElementById('saveError').textContent = '';
     document.getElementById('saveSuccess').textContent = '';
+    currentRecordId = null; // Clear the current record ID
 }
 
 function handleTogglePasswordVisibility() {
@@ -651,16 +653,19 @@ async function viewRecord(passwordId, passwords) {
         
         const decryptedPassword = await CryptoManager.decrypt(password.password, encryptionKey);
         
-        // For now, just copy to clipboard
-        await navigator.clipboard.writeText(decryptedPassword);
+        // Populate the record form
+        document.getElementById('saveWebsite').value = password.website;
+        document.getElementById('saveUsername').value = password.username;
+        document.getElementById('savePassword').value = decryptedPassword;
+        document.getElementById('savePassword').type = 'text'; // Show password by default
+        document.getElementById('saveError').textContent = '';
+        document.getElementById('saveSuccess').textContent = '';
         
-        // Show visual feedback
-        const record = document.querySelector(`[data-id=\"${passwordId}\"]`);
-        const originalBg = record.style.background;
-        record.style.background = '#e8f5e9';
-        setTimeout(() => {
-            record.style.background = originalBg;
-        }, 1000);
+        // Store the current record ID for potential updates
+        currentRecordId = passwordId;
+        
+        // Show the record view
+        showView('record');
     } catch (error) {
         console.error('Failed to decrypt password:', error);
     }
