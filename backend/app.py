@@ -450,6 +450,41 @@ def get_login_verification_template(code: str) -> str:
     </html>
     """
 
+def get_password_reset_template(code: str) -> str:
+    """HTML template for password reset."""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: #4279D8; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }}
+            .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 5px 5px; }}
+            .code {{ font-size: 32px; font-weight: bold; text-align: center; padding: 20px; background: white; border-radius: 5px; letter-spacing: 5px; color: #4279D8; }}
+            .footer {{ text-align: center; margin-top: 20px; color: #666; font-size: 12px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>Password Manager</h1>
+            </div>
+            <div class="content">
+                <h2>Password Reset Request</h2>
+                <p>A password reset was requested for your account. Please use the verification code below to reset your password:</p>
+                <div class="code">{code}</div>
+                <p>This code will expire in 5 minutes.</p>
+                <p>If you didn't request a password reset, please ignore this email and secure your account.</p>
+            </div>
+            <div class="footer">
+                <p>Password Manager - Secure Password Storage</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
 # ============= Models =============
 
 class UserSignup(BaseModel):
@@ -460,6 +495,9 @@ class UserSignup(BaseModel):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+class ForgotPassword(BaseModel):
+    email: EmailStr
 
 class Token(BaseModel):
     access_token: str
@@ -720,6 +758,36 @@ async def verify_login(data: LoginVerify):
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/api/auth/forgot-password")
+async def forgot_password(data: ForgotPassword):
+    """Send password reset code to user's email"""
+    # Get user from database
+    db_user = DynamoDBUser.get_by_email(data.email)
+    
+    if not db_user:
+        # Don't reveal if email exists or not for security
+        return {"message": "If the email exists, a reset code will be sent"}
+    
+    # Allow password reset even for unverified accounts
+    # The reset flow itself provides email verification
+    
+    # Generate reset code (reuse login verification code mechanism)
+    reset_code = generate_verification_code()
+    DynamoDBUser.set_login_verification_code(data.email, reset_code)
+    
+    # Send reset email
+    try:
+        send_email_ses(
+            recipient_email=data.email,
+            subject="Password Manager - Password Reset Code",
+            html_content=get_password_reset_template(reset_code)
+        )
+    except Exception as e:
+        print(f"[ERROR] Failed to send password reset email: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send reset code")
+    
+    return {"message": "Reset code sent successfully. Please check your email."}
 
 @app.post("/api/passwords/generate")
 async def generate_new_password(params: PasswordGenerate):

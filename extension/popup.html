@@ -33,6 +33,10 @@
             position: relative;
         }
 
+        .header-no-border {
+            border-bottom: none;
+        }
+
         .header-left {
             display: flex;
             align-items: center;
@@ -295,6 +299,20 @@
             text-decoration: underline;
         }
 
+        .forgot-password-link {
+            color: #4285f4;
+            text-decoration: none;
+            font-size: 13px;
+            cursor: pointer;
+            display: block;
+            text-align: right;
+            margin-top: 8px;
+        }
+
+        .forgot-password-link:hover {
+            text-decoration: underline;
+        }
+
         .verification-banner {
             background: rgba(76, 175, 80, 0.1);
             border: 1px solid rgba(76, 175, 80, 0.3);
@@ -532,14 +550,20 @@
 <body>
     <div class="container">
         <!-- Login View -->
-        <div id="loginView" class="view active" style="height: 335px;">
-            <div class="header">
+        <div id="loginView" class="view active" style="height: 355px; padding-top: 12px;">
+            <div class="header header-no-border">
                 <div class="header-left">
                     <img src="icons/icon128.png" alt="Logo" class="header-logo">
                     <h1 class="header-title">Password Manager</h1>
                 </div>
+                <div class="header-menu">
+                    <button id="loginMenuBtn" class="menu-btn">⋮</button>
+                    <div id="loginMenuDropdown" class="menu-dropdown">
+                        <div id="menuForgotPasswordBtn" class="menu-item" style="font-size: 12px;">Forgot Password</div>
+                    </div>
+                </div>
             </div>
-            <div class="content">
+            <div class="content" style="padding-top: 32px;">
                 <div class="form-section">
                     <div class="input-group">
                         <label for="loginEmail">Email Address:</label>
@@ -561,8 +585,8 @@
         </div>
 
         <!-- Signup View -->
-        <div id="signupView" class="view" style="height: 410px;">
-            <div class="header">
+        <div id="signupView" class="view" style="height: 410px; padding-top: 12px;">
+            <div class="header header-no-border">
                 <div class="header-left">
                     <img src="icons/icon128.png" alt="Logo" class="header-logo">
                     <h1 class="header-title">Password Manager</h1>
@@ -593,9 +617,33 @@
             </div>
         </div>
 
+        <!-- Forgot Password View -->
+        <div id="forgotPasswordView" class="view" style="height: 310px; padding-top: 12px;">
+            <div class="header header-no-border">
+                <div class="header-left">
+                    <img src="icons/icon128.png" alt="Logo" class="header-logo">
+                    <h1 class="header-title">Password Manager</h1>
+                </div>
+            </div>
+            <div class="content">
+                <div class="form-section">
+                    <div class="verification-banner">Please enter your registered email</div>
+                    <div class="input-group">
+                        <label for="forgotPasswordEmail">Email Address:</label>
+                        <input type="email" id="forgotPasswordEmail" placeholder="">
+                    </div>
+                    <div id="forgotPasswordError" class="error"></div>
+                </div>
+                <div class="bottom-section">
+                    <button id="sendResetCodeBtn" class="primary">Send Reset Code</button>
+                    <button id="backToLoginFromForgotBtn" class="link-button">Back to Sign In</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Email Verification View -->
-        <div id="verifyView" class="view" style="height: 330px;">
-            <div class="header">
+        <div id="verifyView" class="view" style="height: 330px; padding-top: 12px;">
+            <div class="header header-no-border">
                 <div class="header-left">
                     <img src="icons/icon128.png" alt="Logo" class="header-logo">
                     <h1 class="header-title">Password Manager</h1>
@@ -619,8 +667,8 @@
         </div>
 
         <!-- Login Verification View -->
-        <div id="loginVerifyView" class="view" style="height: 310px;">
-            <div class="header">
+        <div id="loginVerifyView" class="view" style="height: 310px; padding-top: 12px;">
+            <div class="header header-no-border">
                 <div class="header-left">
                     <img src="icons/icon128.png" alt="Logo" class="header-logo">
                     <h1 class="header-title">Password Manager</h1>
@@ -643,8 +691,8 @@
         </div>
 
         <!-- Signed In View -->
-        <div id="signedInView" class="view" style="height: 456px;">
-            <div class="header">
+        <div id="signedInView" class="view" style="height: 456px; padding-top: 12px;">
+            <div class="header header-no-border">
                 <div class="header-left">
                     <img src="icons/icon128.png" alt="Logo" class="header-logo">
                     <h1 class="header-title">Password Manager</h1>
@@ -690,8 +738,8 @@
         </div>
 
         <!-- Add/Edit Record View -->
-        <div id="recordView" class="view" style="height: 390px;">
-            <div class="header">
+        <div id="recordView" class="view" style="height: 390px; padding-top: 12px;">
+            <div class="header header-no-border">
                 <div class="header-left">
                     <img src="icons/icon128.png" alt="Logo" class="header-logo">
                     <h1 class="header-title">Password Manager</h1>

@@ -115,6 +115,7 @@ const views = {
     signup: document.getElementById('signupView'),
     verify: document.getElementById('verifyView'),
     loginVerify: document.getElementById('loginVerifyView'),
+    forgotPassword: document.getElementById('forgotPasswordView'),
     signedIn: document.getElementById('signedInView'),
     record: document.getElementById('recordView')
 };
@@ -166,6 +167,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const menuBtn = document.getElementById('menuBtn');
         const recordMenuDropdown = document.getElementById('recordMenuDropdown');
         const recordMenuBtn = document.getElementById('recordMenuBtn');
+        const loginMenuDropdown = document.getElementById('loginMenuDropdown');
+        const loginMenuBtn = document.getElementById('loginMenuBtn');
         
         if (menuDropdown && menuBtn && !menuBtn.contains(e.target) && !menuDropdown.contains(e.target)) {
             menuDropdown.classList.remove('active');
@@ -173,6 +176,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         if (recordMenuDropdown && recordMenuBtn && !recordMenuBtn.contains(e.target) && !recordMenuDropdown.contains(e.target)) {
             recordMenuDropdown.classList.remove('active');
+        }
+        
+        if (loginMenuDropdown && loginMenuBtn && !loginMenuBtn.contains(e.target) && !loginMenuDropdown.contains(e.target)) {
+            loginMenuDropdown.classList.remove('active');
         }
     });
 });
@@ -196,6 +203,19 @@ function setupEventListeners() {
     // Login View
     document.getElementById('loginBtn').addEventListener('click', handleLogin);
     document.getElementById('showSignupBtn').addEventListener('click', () => showView('signup'));
+    document.getElementById('loginMenuBtn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        document.getElementById('loginMenuDropdown').classList.toggle('active');
+    });
+    document.getElementById('menuForgotPasswordBtn').addEventListener('click', () => {
+        document.getElementById('forgotPasswordEmail').value = '';
+        document.getElementById('forgotPasswordError').textContent = '';
+        showView('forgotPassword');
+    });
+
+    // Forgot Password View
+    document.getElementById('sendResetCodeBtn').addEventListener('click', handleSendResetCode);
+    document.getElementById('backToLoginFromForgotBtn').addEventListener('click', () => showView('login'));
 
     // Signup View
     document.getElementById('signupBtn').addEventListener('click', handleSignup);
@@ -371,6 +391,42 @@ async function handleVerifyLogin() {
         showView('signedIn');
     } catch (error) {
         errorEl.textContent = error.message || 'Verification failed. Please try again.';
+    }
+}
+
+async function handleSendResetCode() {
+    const email = document.getElementById('forgotPasswordEmail').value.trim();
+    const errorEl = document.getElementById('forgotPasswordError');
+
+    errorEl.textContent = '';
+
+    if (!email) {
+        errorEl.textContent = 'Please enter your email address';
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to send reset code');
+        }
+
+        // TODO: Navigate to reset password verification view
+        // For now, show success message
+        errorEl.style.color = '#10a37f';
+        errorEl.textContent = 'Reset code sent! Please check your email.';
+        
+    } catch (error) {
+        errorEl.style.color = '#ef4444';
+        errorEl.textContent = error.message || 'Failed to send reset code. Please try again.';
     }
 }
 
