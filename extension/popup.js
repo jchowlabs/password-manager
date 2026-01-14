@@ -286,7 +286,7 @@ async function handleLogin() {
 
         // Store the salt from server response
         if (data.encryption_salt) {
-            await chrome.storage.local.set({ ['userSalt_' + email]: data.encryption_salt });
+            await chrome.storage.local.set({ userSalt: data.encryption_salt });
         }
 
         // Store login session state so user can resume if they close the extension
@@ -338,15 +338,15 @@ async function handleVerifyLogin() {
         authToken = data.access_token;
 
         // Derive encryption key from password and stored salt
-        const storedData = await chrome.storage.local.get(['userSalt_' + currentUser]);
+        const storedData = await chrome.storage.local.get(['userSalt']);
         let salt;
         
-        if (storedData['userSalt_' + currentUser]) {
-            salt = CryptoManager.base64ToSalt(storedData['userSalt_' + currentUser]);
+        if (storedData.userSalt) {
+            salt = CryptoManager.base64ToSalt(storedData.userSalt);
         } else {
             // Generate salt if not exists (first time login)
             salt = CryptoManager.generateSalt();
-            await chrome.storage.local.set({ ['userSalt_' + currentUser]: CryptoManager.saltToBase64(salt) });
+            await chrome.storage.local.set({ userSalt: CryptoManager.saltToBase64(salt) });
         }
         
         encryptionKey = await CryptoManager.deriveKey(loginPassword, salt);
@@ -423,7 +423,7 @@ async function handleSignup() {
         // Store salt locally as backup
         await chrome.storage.local.set({ 
             pendingVerificationEmail: email,
-            ['userSalt_' + email]: saltBase64
+            userSalt: saltBase64
         });
         
         // Show verification view
