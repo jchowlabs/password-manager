@@ -116,6 +116,7 @@ const views = {
     verify: document.getElementById('verifyView'),
     loginVerify: document.getElementById('loginVerifyView'),
     forgotPassword: document.getElementById('forgotPasswordView'),
+    resetPassword: document.getElementById('resetPasswordView'),
     signedIn: document.getElementById('signedInView'),
     record: document.getElementById('recordView')
 };
@@ -123,7 +124,7 @@ const views = {
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
     // Check if user is already logged in
-    const stored = await chrome.storage.local.get(['authToken', 'userEmail', 'loginSessionToken', 'loginEmail', 'loginPassword', 'pendingVerificationEmail', 'encryptionKey']);
+    const stored = await chrome.storage.local.get(['authToken', 'userEmail', 'loginSessionToken', 'loginEmail', 'loginPassword', 'pendingVerificationEmail', 'resetPasswordEmail', 'encryptionKey']);
     
     if (stored.authToken) {
         // User is fully logged in
@@ -157,6 +158,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('verifyError').textContent = '';
         document.getElementById('verifySuccess').textContent = '';
         showView('verify');
+    } else if (stored.resetPasswordEmail) {
+        // User is in the middle of password reset
+        document.getElementById('resetVerificationCode').value = '';
+        document.getElementById('newPassword').value = '';
+        document.getElementById('confirmPassword').value = '';
+        document.getElementById('resetPasswordError').textContent = '';
+        showView('resetPassword');
     }
 
     setupEventListeners();
@@ -216,6 +224,13 @@ function setupEventListeners() {
     // Forgot Password View
     document.getElementById('sendResetCodeBtn').addEventListener('click', handleSendResetCode);
     document.getElementById('backToLoginFromForgotBtn').addEventListener('click', () => showView('login'));
+
+    // Reset Password View
+    document.getElementById('resetPasswordBtn').addEventListener('click', handleResetPassword);
+    document.getElementById('backToLoginFromResetBtn').addEventListener('click', async () => {
+        await chrome.storage.local.remove(['resetPasswordEmail']);
+        showView('login');
+    });
 
     // Signup View
     document.getElementById('signupBtn').addEventListener('click', handleSignup);
@@ -419,14 +434,82 @@ async function handleSendResetCode() {
             throw new Error(error.detail || 'Failed to send reset code');
         }
 
-        // TODO: Navigate to reset password verification view
-        // For now, show success message
-        errorEl.style.color = '#10a37f';
-        errorEl.textContent = 'Reset code sent! Please check your email.';
+        // Store email for the reset password step
+        chrome.storage.local.set({ resetPasswordEmail: email });
+        
+        // Navigate to reset password verification view
+        showView('resetPassword');
         
     } catch (error) {
         errorEl.style.color = '#ef4444';
         errorEl.textContent = error.message || 'Failed to send reset code. Please try again.';
+    }
+}
+
+async function handleResetPassword() {
+    const code = document.getElementById('resetVerificationCode').value.trim();
+    const newPassword = document.getElementById('newPassword').value;
+    const confirmPassword = document.getElementById('confirmPassword').value;
+    const errorEl = document.getElementById('resetPasswordError');
+
+    errorEl.textContent = '';
+
+    // Validation
+    if (!code) {
+        errorEl.textContent = 'Please enter the verification code';
+        return;
+    }
+
+    if (!newPassword) {
+        errorEl.textContent = 'Please enter a new password';
+        return;
+    }
+
+    if (newPassword.length < 8) {
+        errorEl.textContent = 'Password must be at least 8 characters';
+        return;
+    }
+
+    if (newPassword !== confirmPassword) {
+        errorEl.textContent = 'Passwords do not match';
+        return;
+    }
+
+    try {
+        // Get stored email
+        const result = await chrome.storage.local.get(['resetPasswordEmail']);
+        const email = result.resetPasswordEmail;
+
+        if (!email) {
+            throw new Error('Session expired. Please try again.');
+        }
+
+        // Call reset password endpoint
+        const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                email,
+                code,
+                new_password: newPassword
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to reset password');
+        }
+
+        // Clear stored email
+        await chrome.storage.local.remove(['resetPasswordEmail']);
+
+        // Redirect to login
+        showView('login');
+        
+    } catch (error) {
+        errorEl.textContent = error.message || 'Failed to reset password. Please try again.';
     }
 }
 
@@ -563,7 +646,7 @@ async function handleResendCode() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(email)
+            body: JSON.stringify({ email })
         });
 
         const data = await response.json();
@@ -571,8 +654,6 @@ async function handleResendCode() {
         if (!response.ok) {
             throw new Error(data.detail || 'Failed to resend code');
         }
-
-        successEl.textContent = 'Verification code resent! Check your email.';
         
     } catch (error) {
         errorEl.textContent = error.message || 'Failed to resend code. Please try again.';

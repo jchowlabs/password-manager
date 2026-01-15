@@ -296,6 +296,26 @@ class DynamoDBUser:
         )
         
         return True
+    
+    @staticmethod
+    def update_password(email: str, new_password_hash: str):
+        """Update user's password hash."""
+        user = DynamoDBUser.get_by_email(email)
+        if not user:
+            return False
+        
+        dynamodb = get_dynamodb_resource()
+        table = dynamodb.Table(DYNAMODB_USER_TABLE)
+        
+        table.update_item(
+            Key={'user_id': user['user_id']},
+            UpdateExpression='SET password_hash = :hash, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':hash': new_password_hash,
+                ':updated': datetime.now(UTC).isoformat()
+            }
+        )
+        return True
 
 class DynamoDBPasswords:
     """Password vault model for DynamoDB operations."""
@@ -499,6 +519,11 @@ class UserLogin(BaseModel):
 class ForgotPassword(BaseModel):
     email: EmailStr
 
+class ResetPassword(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
+
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -659,10 +684,13 @@ async def verify_email(data: VerifyEmail):
     
     return {"message": "Email verified successfully. You can now login."}
 
+class ResendVerification(BaseModel):
+    email: EmailStr
+
 @app.post("/api/auth/resend-verification")
-async def resend_verification(email: EmailStr):
+async def resend_verification(data: ResendVerification):
     """Resend verification code"""
-    user = DynamoDBUser.get_by_email(email)
+    user = DynamoDBUser.get_by_email(data.email)
     
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -672,12 +700,12 @@ async def resend_verification(email: EmailStr):
     
     # Generate new code
     new_code = generate_verification_code()
-    DynamoDBUser.update_verification_code(email, new_code)
+    DynamoDBUser.update_verification_code(data.email, new_code)
     
     # Send email
     try:
         send_email_ses(
-            recipient_email=email,
+            recipient_email=data.email,
             subject="Password Manager - Verify Your Email",
             html_content=get_email_verification_template(new_code)
         )
@@ -759,14 +787,21 @@ async def verify_login(data: LoginVerify):
     
     return {"access_token": access_token, "token_type": "bearer"}
 
+@app.get("/api/test-reload")
+async def test_reload():
+    """Test endpoint to verify server reloads"""
+    return {"message": "Server reloaded successfully!", "timestamp": datetime.now(UTC).isoformat()}
+
 @app.post("/api/auth/forgot-password")
 async def forgot_password(data: ForgotPassword):
     """Send password reset code to user's email"""
+    print(f"[DEBUG] Forgot password endpoint called for email: {data.email}")
     # Get user from database
     db_user = DynamoDBUser.get_by_email(data.email)
     
     if not db_user:
         # Don't reveal if email exists or not for security
+        print(f"[DEBUG] User not found in database for email: {data.email}")
         return {"message": "If the email exists, a reset code will be sent"}
     
     # Allow password reset even for unverified accounts
@@ -788,6 +823,26 @@ async def forgot_password(data: ForgotPassword):
         raise HTTPException(status_code=500, detail="Failed to send reset code")
     
     return {"message": "Reset code sent successfully. Please check your email."}
+
+@app.post("/api/auth/reset-password")
+async def reset_password(data: ResetPassword):
+    """Reset user's password with verification code"""
+    # Verify the reset code
+    if not DynamoDBUser.verify_login_code(data.email, data.code):
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+    
+    # Validate new password strength
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    
+    # Hash the new password
+    new_password_hash = hash_password(data.new_password)
+    
+    # Update password in database
+    if not DynamoDBUser.update_password(data.email, new_password_hash):
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {"message": "Password reset successfully. You can now login with your new password."}
 
 @app.post("/api/passwords/generate")
 async def generate_new_password(params: PasswordGenerate):
