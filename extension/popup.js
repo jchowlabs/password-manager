@@ -277,6 +277,11 @@ function setupEventListeners() {
         showView('signedIn');
         loadVault();
     });
+    
+    // Password Generator Options
+    document.getElementById('passwordLength').addEventListener('input', (e) => {
+        document.getElementById('passwordLengthValue').textContent = e.target.value;
+    });
 
     // Enter key handlers
     document.getElementById('loginPassword').addEventListener('keypress', (e) => {
@@ -765,6 +770,13 @@ function clearRecordForm() {
 
 async function handleGenerateForRecord() {
     try {
+        // Get selected options from UI
+        const length = parseInt(document.getElementById('passwordLength').value);
+        const includeUppercase = document.getElementById('includeUppercase').checked;
+        const includeLowercase = document.getElementById('includeLowercase').checked;
+        const includeNumbers = document.getElementById('includeNumbers').checked;
+        const includeSymbols = document.getElementById('includeSymbols').checked;
+
         const response = await fetch(`${API_BASE_URL}/api/passwords/generate`, {
             method: 'POST',
             headers: {
@@ -772,11 +784,11 @@ async function handleGenerateForRecord() {
                 'Authorization': `Bearer ${authToken}`
             },
             body: JSON.stringify({
-                length: 16,
-                include_uppercase: true,
-                include_lowercase: true,
-                include_digits: true,
-                include_symbols: true
+                length: length,
+                include_uppercase: includeUppercase,
+                include_lowercase: includeLowercase,
+                include_digits: includeNumbers,
+                include_symbols: includeSymbols
             })
         });
 
