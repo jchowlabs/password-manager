@@ -331,6 +331,48 @@
             margin-top: 5px;
         }
 
+        .password-requirements {
+            background-color: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 8px;
+            font-size: 12px;
+            display: none;
+        }
+
+        .password-requirements.visible {
+            display: block;
+        }
+
+        .requirement {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+            color: #666;
+        }
+
+        .requirement:last-child {
+            margin-bottom: 0;
+        }
+
+        .requirement::before {
+            content: '○';
+            margin-right: 8px;
+            font-size: 14px;
+            color: #ccc;
+        }
+
+        .requirement.met {
+            color: #188038;
+        }
+
+        .requirement.met::before {
+            content: '✓';
+            color: #188038;
+            font-weight: bold;
+        }
+
         .success {
             color: #4CAF50;
             font-size: 13px;
@@ -618,6 +660,13 @@
                     <div class="input-group">
                         <label for="signupPassword">Master Password:</label>
                         <input type="password" id="signupPassword" placeholder="">
+                        <div class="password-requirements">
+                            <div id="req-length" class="requirement">At least 8 characters</div>
+                            <div id="req-uppercase" class="requirement">At least one uppercase letter</div>
+                            <div id="req-lowercase" class="requirement">At least one lowercase letter</div>
+                            <div id="req-number" class="requirement">At least one number</div>
+                            <div id="req-special" class="requirement">At least one special character</div>
+                        </div>
                     </div>
                     <div class="input-group">
                         <label for="signupPasswordConfirm">Confirm Password:</label>
@@ -676,6 +725,13 @@
                     <div class="input-group">
                         <label for="newPassword">New Password:</label>
                         <input type="password" id="newPassword" placeholder="">
+                        <div class="password-requirements">
+                            <div id="reset-req-length" class="requirement">At least 8 characters</div>
+                            <div id="reset-req-uppercase" class="requirement">At least one uppercase letter</div>
+                            <div id="reset-req-lowercase" class="requirement">At least one lowercase letter</div>
+                            <div id="reset-req-number" class="requirement">At least one number</div>
+                            <div id="reset-req-special" class="requirement">At least one special character</div>
+                        </div>
                     </div>
                     <div class="input-group">
                         <label for="confirmPassword">Confirm Password:</label>

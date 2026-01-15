@@ -285,6 +285,99 @@ function setupEventListeners() {
     document.getElementById('signupPasswordConfirm').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') handleSignup();
     });
+
+    // Password validation - Signup
+    document.getElementById('signupPassword').addEventListener('input', validateSignupPassword);
+    document.getElementById('signupPasswordConfirm').addEventListener('input', validateSignupPasswordMatch);
+
+    // Password validation - Reset Password
+    document.getElementById('newPassword').addEventListener('input', validateResetPassword);
+    document.getElementById('confirmPassword').addEventListener('input', validateResetPasswordMatch);
+}
+
+// Password Validation Functions
+function validatePasswordRequirements(password) {
+    return {
+        length: password.length >= 8,
+        uppercase: /[A-Z]/.test(password),
+        lowercase: /[a-z]/.test(password),
+        number: /[0-9]/.test(password),
+        special: /[!@#$%^&*(),.?":{}|<>]/.test(password)
+    };
+}
+
+function updatePasswordRequirementsUI(validationResults, prefix = 'req') {
+    const requirements = ['length', 'uppercase', 'lowercase', 'number', 'special'];
+    requirements.forEach(req => {
+        const element = document.getElementById(`${prefix}-${req}`);
+        if (element) {
+            if (validationResults[req]) {
+                element.classList.add('met');
+            } else {
+                element.classList.remove('met');
+            }
+        }
+    });
+}
+
+function validateSignupPassword() {
+    const password = document.getElementById('signupPassword').value;
+    const requirementsBox = document.querySelector('#signupPassword + .password-requirements');
+    
+    // Show requirements box when user starts typing
+    if (password.length > 0 && requirementsBox) {
+        requirementsBox.classList.add('visible');
+    } else if (password.length === 0 && requirementsBox) {
+        requirementsBox.classList.remove('visible');
+    }
+    
+    const validationResults = validatePasswordRequirements(password);
+    updatePasswordRequirementsUI(validationResults, 'req');
+    validateSignupPasswordMatch(); // Also validate match when password changes
+}
+
+function validateSignupPasswordMatch() {
+    const password = document.getElementById('signupPassword').value;
+    const confirmPassword = document.getElementById('signupPasswordConfirm').value;
+    const errorEl = document.getElementById('signupError');
+    
+    if (confirmPassword && password !== confirmPassword) {
+        errorEl.textContent = 'Passwords do not match';
+        return false;
+    } else {
+        errorEl.textContent = '';
+        return true;
+    }
+}
+
+function validateResetPassword() {
+    const password = document.getElementById('newPassword').value;
+    const requirementsBox = document.querySelector('#newPassword + .password-requirements');
+    
+    // Show requirements box when user starts typing
+    if (password.length > 0 && requirementsBox) {
+        requirementsBox.classList.add('visible');
+    } else if (password.length === 0 && requirementsBox) {
+        requirementsBox.classList.remove('visible');
+    }
+    
+    const validationResults = validatePasswordRequirements(password);
+    updatePasswordRequirementsUI(validationResults, 'reset-req');
+    validateResetPasswordMatch(); // Also validate match when password changes
+}
+
+function validateResetPasswordMatch() {
+    const password = document.getElementById('newPassword').value;
+    const confirmPassword = document.getElementById('confirmPassword').value;
+    const errorEl = document.getElementById('resetPasswordError');
+    
+    if (confirmPassword && password !== confirmPassword) {
+        errorEl.textContent = 'Passwords do not match';
+        return false;
+    } else {
+        errorEl.textContent = '';
+        return true;
+    }
 }
 
 // Authentication Functions
