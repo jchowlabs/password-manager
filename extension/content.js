@@ -14,36 +14,8 @@ function detectPasswordFields() {
     };
 }
 
-// Listen for form submissions to offer saving passwords
-document.addEventListener('submit', async (e) => {
-    const form = e.target;
-    const fields = detectPasswordFields();
-    
-    if (fields.hasPasswordField && fields.hasEmailField) {
-        const emailField = fields.emailFields[0];
-        const passwordField = fields.passwordFields[0];
-        
-        const email = emailField.value;
-        const password = passwordField.value;
-        const website = window.location.hostname;
-        
-        if (email && password) {
-            // Send message to background script to save password
-            chrome.runtime.sendMessage({
-                action: 'savePassword',
-                data: {
-                    website: website,
-                    username: email,
-                    password: password
-                }
-            }, (response) => {
-                if (response && response.success) {
-                    console.log('Password saved successfully');
-                }
-            });
-        }
-    }
-});
+// TODO: Implement secure password capture with encryption
+// Form submission interception disabled for security - passwords must be encrypted client-side first
 
 // Auto-fill functionality (TODO: implement when user selects from vault)
 function autoFillPassword(username, password) {

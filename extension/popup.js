@@ -124,7 +124,7 @@ const views = {
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
     // Check if user is already logged in
-    const stored = await chrome.storage.local.get(['authToken', 'userEmail', 'loginSessionToken', 'loginEmail', 'loginPassword', 'pendingVerificationEmail', 'resetPasswordEmail', 'encryptionKey']);
+    const stored = await chrome.storage.local.get(['authToken', 'userEmail', 'pendingVerificationEmail', 'resetPasswordEmail', 'encryptionKey']);
     
     if (stored.authToken) {
         // User is fully logged in
@@ -144,14 +144,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         
         showView('signedIn');
-    } else if (stored.loginSessionToken && stored.loginEmail && stored.loginPassword) {
-        // User is in the middle of login verification
-        loginSessionToken = stored.loginSessionToken;
-        currentUser = stored.loginEmail;
-        loginPassword = stored.loginPassword;
-        document.getElementById('loginVerificationCode').value = '';
-        document.getElementById('loginVerifyError').textContent = '';
-        showView('loginVerify');
     } else if (stored.pendingVerificationEmail) {
         // User is in the middle of signup email verification
         document.getElementById('verificationCode').value = '';
@@ -244,7 +236,6 @@ function setupEventListeners() {
     document.getElementById('verifyLoginBtn').addEventListener('click', handleVerifyLogin);
     document.getElementById('backToLoginFromVerifyBtn').addEventListener('click', async () => {
         // Clear login session data when user goes back
-        await chrome.storage.local.remove(['loginSessionToken', 'loginEmail', 'loginPassword']);
         loginSessionToken = null;
         loginPassword = null;
         currentUser = null;
@@ -422,13 +413,6 @@ async function handleLogin() {
             await chrome.storage.local.set({ userSalt: data.encryption_salt });
         }
 
-        // Store login session state so user can resume if they close the extension
-        await chrome.storage.local.set({
-            loginSessionToken: loginSessionToken,
-            loginEmail: email,
-            loginPassword: password
-        });
-
         // Show login verification view
         document.getElementById('loginVerificationCode').value = '';
         document.getElementById('loginVerifyError').textContent = '';
@@ -495,9 +479,7 @@ async function handleVerifyLogin() {
             encryptionKey: JSON.stringify(keyArray)
         });
         
-        // Clear login session data
-        await chrome.storage.local.remove(['loginSessionToken', 'loginEmail', 'loginPassword']);
-        
+        // Clear login session data from memory
         loginSessionToken = null;
         loginPassword = null;
 
@@ -1009,11 +991,4 @@ async function deletePassword(passwordId) {
     } catch (error) {
         console.error('Failed to delete password:', error);
     }
-}
-
-// Utility Functions
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 }
