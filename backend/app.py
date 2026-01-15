@@ -1,11 +1,11 @@
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 import secrets
 import string
-import hashlib
 import os
+from passlib.context import CryptContext
 from datetime import datetime, timedelta, UTC
 from contextlib import asynccontextmanager
 from decimal import Decimal
@@ -14,6 +14,9 @@ from jose import jwt
 import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Load environment variables
 load_dotenv()
@@ -37,6 +40,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Password Manager API", lifespan=lifespan)
 
+# Rate limiting configuration
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Password hashing configuration (using bcrypt with SHA-256 pre-hashing for compatibility)
+pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
+
 # CORS configuration for Chrome extension (allow all origins for local development)
 app.add_middleware(
     CORSMiddleware,
@@ -47,7 +58,9 @@ app.add_middleware(
 )
 
 # Security configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY environment variable must be set")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
@@ -266,6 +279,30 @@ class DynamoDBUser:
         return True
     
     @staticmethod
+    def set_password_reset_code(email: str, code: str):
+        """Set password reset verification code (separate from login code)."""
+        user = DynamoDBUser.get_by_email(email)
+        if not user:
+            return False
+        
+        dynamodb = get_dynamodb_resource()
+        table = dynamodb.Table(DYNAMODB_USER_TABLE)
+        
+        # Store code with expiration (5 minutes)
+        expiration = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
+        
+        table.update_item(
+            Key={'user_id': user['user_id']},
+            UpdateExpression='SET password_reset_code = :code, password_reset_expires = :expires, updated_at = :updated',
+            ExpressionAttributeValues={
+                ':code': code,
+                ':expires': expiration,
+                ':updated': datetime.now(UTC).isoformat()
+            }
+        )
+        return True
+    
+    @staticmethod
     def verify_login_code(email: str, code: str):
         """Verify login code and check expiration."""
         user = DynamoDBUser.get_by_email(email)
@@ -290,6 +327,38 @@ class DynamoDBUser:
         table.update_item(
             Key={'user_id': user['user_id']},
             UpdateExpression='REMOVE login_verification_code, login_code_expires SET updated_at = :updated',
+            ExpressionAttributeValues={
+                ':updated': datetime.now(UTC).isoformat()
+            }
+        )
+        
+        return True
+    
+    @staticmethod
+    def verify_password_reset_code(email: str, code: str):
+        """Verify password reset code and check expiration."""
+        user = DynamoDBUser.get_by_email(email)
+        if not user:
+            return False
+        
+        # Check if code exists and matches
+        if user.get('password_reset_code') != code:
+            return False
+        
+        # Check if code has expired
+        expiration = user.get('password_reset_expires')
+        if not expiration:
+            return False
+        
+        if datetime.fromisoformat(expiration) < datetime.now(UTC):
+            return False  # Code expired
+        
+        # Clear the code after successful verification
+        dynamodb = get_dynamodb_resource()
+        table = dynamodb.Table(DYNAMODB_USER_TABLE)
+        table.update_item(
+            Key={'user_id': user['user_id']},
+            UpdateExpression='REMOVE password_reset_code, password_reset_expires SET updated_at = :updated',
             ExpressionAttributeValues={
                 ':updated': datetime.now(UTC).isoformat()
             }
@@ -549,8 +618,12 @@ class PasswordGenerate(BaseModel):
 # ============= Utility Functions =============
 
 def hash_password(password: str) -> str:
-    """Hash a password using SHA-256"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password using bcrypt"""
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against its hash"""
+    return pwd_context.verify(plain_password, hashed_password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create JWT token"""
@@ -640,7 +713,8 @@ async def root():
     return {"message": "Password Manager API", "status": "running"}
 
 @app.post("/api/auth/signup")
-async def signup(user: UserSignup):
+@limiter.limit("5/hour")  # 5 signups per hour per IP
+async def signup(request: Request, user: UserSignup):
     """Register a new user and send verification email"""
     # Check if user already exists
     existing_user = DynamoDBUser.get_by_email(user.email)
@@ -675,7 +749,8 @@ async def signup(user: UserSignup):
     }
 
 @app.post("/api/auth/verify-email")
-async def verify_email(data: VerifyEmail):
+@limiter.limit("10/hour")  # 10 verification attempts per hour
+async def verify_email(request: Request, data: VerifyEmail):
     """Verify user's email with 6-digit code"""
     success = DynamoDBUser.verify_email(data.email, data.code)
     
@@ -688,7 +763,8 @@ class ResendVerification(BaseModel):
     email: EmailStr
 
 @app.post("/api/auth/resend-verification")
-async def resend_verification(data: ResendVerification):
+@limiter.limit("3/hour")  # 3 resend attempts per hour
+async def resend_verification(request: Request, data: ResendVerification):
     """Resend verification code"""
     user = DynamoDBUser.get_by_email(data.email)
     
@@ -715,7 +791,8 @@ async def resend_verification(data: ResendVerification):
     return {"message": "Verification code resent successfully"}
 
 @app.post("/api/auth/login", response_model=LoginSession)
-async def login(user: UserLogin):
+@limiter.limit("5/minute")  # 5 login attempts per minute
+async def login(request: Request, user: UserLogin):
     """Authenticate user credentials and send login verification code"""
     # Get user from database
     db_user = DynamoDBUser.get_by_email(user.email)
@@ -728,7 +805,7 @@ async def login(user: UserLogin):
         raise HTTPException(status_code=403, detail="Email not verified. Please check your email.")
     
     # Verify password
-    if hash_password(user.password) != db_user['password_hash']:
+    if not verify_password(user.password, db_user['password_hash']):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     # Generate login verification code
@@ -760,7 +837,8 @@ async def login(user: UserLogin):
     }
 
 @app.post("/api/auth/verify-login", response_model=Token)
-async def verify_login(data: LoginVerify):
+@limiter.limit("10/hour")  # 10 verification attempts per hour
+async def verify_login(request: Request, data: LoginVerify):
     """Verify login code and return access token"""
     # Validate session token
     try:
@@ -793,7 +871,8 @@ async def test_reload():
     return {"message": "Server reloaded successfully!", "timestamp": datetime.now(UTC).isoformat()}
 
 @app.post("/api/auth/forgot-password")
-async def forgot_password(data: ForgotPassword):
+@limiter.limit("3/hour")  # 3 password reset requests per hour
+async def forgot_password(request: Request, data: ForgotPassword):
     """Send password reset code to user's email"""
     print(f"[DEBUG] Forgot password endpoint called for email: {data.email}")
     # Get user from database
@@ -807,9 +886,9 @@ async def forgot_password(data: ForgotPassword):
     # Allow password reset even for unverified accounts
     # The reset flow itself provides email verification
     
-    # Generate reset code (reuse login verification code mechanism)
+    # Generate reset code (separate from login verification code)
     reset_code = generate_verification_code()
-    DynamoDBUser.set_login_verification_code(data.email, reset_code)
+    DynamoDBUser.set_password_reset_code(data.email, reset_code)
     
     # Send reset email
     try:
@@ -825,10 +904,11 @@ async def forgot_password(data: ForgotPassword):
     return {"message": "Reset code sent successfully. Please check your email."}
 
 @app.post("/api/auth/reset-password")
-async def reset_password(data: ResetPassword):
+@limiter.limit("5/hour")  # 5 password reset attempts per hour
+async def reset_password(request: Request, data: ResetPassword):
     """Reset user's password with verification code"""
-    # Verify the reset code
-    if not DynamoDBUser.verify_login_code(data.email, data.code):
+    # Verify the reset code (using dedicated password reset verification)
+    if not DynamoDBUser.verify_password_reset_code(data.email, data.code):
         raise HTTPException(status_code=400, detail="Invalid or expired verification code")
     
     # Validate new password strength
@@ -880,7 +960,7 @@ async def list_passwords(current_user = Depends(get_current_user_required)):
             'id': p['password_id'],
             'website': p['website'],
             'username': p['username'],
-            'password': p['password'],  # Still encrypted
+            'password': p['password'],  
             'created_at': p['created_at']
         }
         for p in passwords
