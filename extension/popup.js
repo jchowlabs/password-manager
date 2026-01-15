@@ -830,12 +830,34 @@ function displayVaultRecords(passwords) {
     // Sort alphabetically by website
     passwords.sort((a, b) => a.website.localeCompare(b.website));
 
-    vaultList.innerHTML = passwords.map(password => `
-        <div class="vault-record" data-id="${password.id}">
-            <div class=\"vault-record-title\">${escapeHtml(password.website)}</div>
-            <div class=\"vault-record-username\">${escapeHtml(password.username)}</div>
-        </div>
-    `).join('');
+    vaultList.innerHTML = passwords.map(password => {
+        // Extract domain from website URL for favicon
+        let domain = password.website;
+        try {
+            // Add protocol if missing
+            if (!domain.startsWith('http://') && !domain.startsWith('https://')) {
+                domain = 'https://' + domain;
+            }
+            const url = new URL(domain);
+            domain = url.hostname;
+        } catch (e) {
+            // If URL parsing fails, use the website as-is
+            domain = password.website.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+        }
+        
+        return `
+            <div class="vault-record" data-id="${password.id}">
+                <img class="vault-record-favicon" 
+                     src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32" 
+                     onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2220%22 height=%2220%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23999%22 stroke-width=%222%22%3E%3Ccircle cx=%2212%22 cy=%2212%22 r=%2210%22/%3E%3Cline x1=%222%22 y1=%2212%22 x2=%2222%22 y2=%2212%22/%3E%3Cpath d=%22M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z%22/%3E%3C/svg%3E'" 
+                     alt="">
+                <div class="vault-record-info">
+                    <div class="vault-record-title">${escapeHtml(password.website)}</div>
+                    <div class="vault-record-username">${escapeHtml(password.username)}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
 
     // Add click handlers to records
     vaultList.querySelectorAll('.vault-record').forEach(record => {
