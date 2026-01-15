@@ -1,5 +1,5 @@
-// API Configuration
-const API_BASE_URL = 'http://localhost:8000';
+// API Configuration (now handled by background.js)
+// const API_BASE_URL = 'http://localhost:8000'; // Moved to background.js
 
 // Crypto Configuration
 const PBKDF2_ITERATIONS = 100000;
@@ -133,14 +133,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Re-import the encryption key
         if (stored.encryptionKey) {
-            const keyData = JSON.parse(stored.encryptionKey);
-            encryptionKey = await crypto.subtle.importKey(
-                'raw',
-                new Uint8Array(keyData),
-                { name: 'AES-GCM', length: 256 },
-                true,
-                ['encrypt', 'decrypt']
-            );
+            try {
+                const keyData = JSON.parse(stored.encryptionKey);
+                encryptionKey = await crypto.subtle.importKey(
+                    'raw',
+                    new Uint8Array(keyData),
+                    { name: 'AES-GCM', length: 256 },
+                    true,
+                    ['encrypt', 'decrypt']
+                );
+            } catch (cryptoError) {
+                console.error('Failed to import encryption key:', cryptoError);
+                // Clear corrupted key and force re-login
+                await chrome.storage.local.remove(['authToken', 'userEmail', 'encryptionKey']);
+                showView('login');
+                return;
+            }
         }
         
         showView('signedIn');
@@ -390,20 +398,16 @@ async function handleLogin() {
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ email, password })
+        const response = await chrome.runtime.sendMessage({
+            action: 'auth:login',
+            data: { email, password }
         });
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Invalid credentials');
+        if (!response.success) {
+            throw new Error(response.error);
         }
 
-        const data = await response.json();
+        const data = response.data;
         loginSessionToken = data.session_token;
         currentUser = email;
         loginPassword = password; // Store temporarily for encryption key derivation
@@ -434,24 +438,20 @@ async function handleVerifyLogin() {
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/verify-login`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ 
+        const response = await chrome.runtime.sendMessage({
+            action: 'auth:verifyLogin',
+            data: { 
                 email: currentUser,
                 code: code,
                 session_token: loginSessionToken
-            })
+            }
         });
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Invalid verification code');
+        if (!response.success) {
+            throw new Error(response.error);
         }
 
-        const data = await response.json();
+        const data = response.data;
         authToken = data.access_token;
 
         // Derive encryption key from password and stored salt
@@ -466,10 +466,23 @@ async function handleVerifyLogin() {
             await chrome.storage.local.set({ userSalt: CryptoManager.saltToBase64(salt) });
         }
         
-        encryptionKey = await CryptoManager.deriveKey(loginPassword, salt);
+        try {
+            encryptionKey = await CryptoManager.deriveKey(loginPassword, salt);
+        } catch (cryptoError) {
+            errorEl.textContent = 'Failed to derive encryption key. Please try again.';
+            console.error('Key derivation error:', cryptoError);
+            return;
+        }
 
         // Export and store the encryption key
-        const exportedKey = await crypto.subtle.exportKey('raw', encryptionKey);
+        let exportedKey;
+        try {
+            exportedKey = await crypto.subtle.exportKey('raw', encryptionKey);
+        } catch (cryptoError) {
+            errorEl.textContent = 'Failed to export encryption key. Please try again.';
+            console.error('Key export error:', cryptoError);
+            return;
+        }
         const keyArray = Array.from(new Uint8Array(exportedKey));
 
         // Store token and key
@@ -501,17 +514,13 @@ async function handleSendResetCode() {
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ email })
+        const response = await chrome.runtime.sendMessage({
+            action: 'auth:forgotPassword',
+            data: { email }
         });
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Failed to send reset code');
+        if (!response.success) {
+            throw new Error(response.error);
         }
 
         // Store email for the reset password step
@@ -565,21 +574,17 @@ async function handleResetPassword() {
         }
 
         // Call reset password endpoint
-        const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
+        const response = await chrome.runtime.sendMessage({
+            action: 'auth:resetPassword',
+            data: {
                 email,
                 code,
                 new_password: newPassword
-            })
+            }
         });
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Failed to reset password');
+        if (!response.success) {
+            throw new Error(response.error);
         }
 
         // Clear stored email
@@ -621,23 +626,20 @@ async function handleSignup() {
         const salt = CryptoManager.generateSalt();
         const saltBase64 = CryptoManager.saltToBase64(salt);
         
-        const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ 
+        const response = await chrome.runtime.sendMessage({
+            action: 'auth:signup',
+            data: { 
                 email, 
                 password,
                 encryption_salt: saltBase64
-            })
+            }
         });
 
-        const data = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(data.detail || 'Signup failed');
+        if (!response.success) {
+            throw new Error(response.error);
         }
+
+        const data = response.data;
 
         // Store salt locally as backup
         await chrome.storage.local.set({ 
@@ -685,18 +687,13 @@ async function handleVerifyEmail() {
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/verify-email`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ email, code })
+        const response = await chrome.runtime.sendMessage({
+            action: 'auth:verifyEmail',
+            data: { email, code }
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.detail || 'Verification failed');
+        if (!response.success) {
+            throw new Error(response.error);
         }
 
         // Clear pending verification state
@@ -721,18 +718,13 @@ async function handleResendCode() {
     successEl.textContent = '';
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/resend-verification`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ email })
+        const response = await chrome.runtime.sendMessage({
+            action: 'auth:resendVerification',
+            data: { email }
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.detail || 'Failed to resend code');
+        if (!response.success) {
+            throw new Error(response.error);
         }
         
     } catch (error) {
@@ -759,22 +751,22 @@ async function handleGenerateForRecord() {
         const includeNumbers = document.getElementById('includeNumbers').checked;
         const includeSymbols = document.getElementById('includeSymbols').checked;
 
-        const response = await fetch(`${API_BASE_URL}/api/passwords/generate`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`
-            },
-            body: JSON.stringify({
+        const response = await chrome.runtime.sendMessage({
+            action: 'password:generate',
+            data: {
                 length: length,
                 include_uppercase: includeUppercase,
                 include_lowercase: includeLowercase,
                 include_digits: includeNumbers,
                 include_symbols: includeSymbols
-            })
+            }
         });
 
-        const data = await response.json();
+        if (!response.success) {
+            throw new Error(response.error);
+        }
+
+        const data = response.data;
         document.getElementById('savePassword').value = data.password;
     } catch (error) {
         console.error('Failed to generate password:', error);
@@ -783,17 +775,20 @@ async function handleGenerateForRecord() {
 
 async function loadVault() {
     try {
-        const response = await fetch(`${API_BASE_URL}/api/vault/list`, {
-            headers: {
-                'Authorization': `Bearer ${authToken}`
-            }
+        const response = await chrome.runtime.sendMessage({
+            action: 'vault:list'
         });
 
-        if (!response.ok) {
-            throw new Error('Failed to load passwords');
+        if (!response.success) {
+            // Handle auth errors by logging out
+            if (response.isAuthError) {
+                await handleLogout();
+                return;
+            }
+            throw new Error(response.error);
         }
 
-        const data = await response.json();
+        const data = response.data;
         displayVaultRecords(data.passwords);
     } catch (error) {
         console.error('Failed to load vault:', error);
@@ -886,7 +881,14 @@ async function viewRecord(passwordId, passwords) {
             return;
         }
         
-        const decryptedPassword = await CryptoManager.decrypt(password.password, encryptionKey);
+        let decryptedPassword;
+        try {
+            decryptedPassword = await CryptoManager.decrypt(password.password, encryptionKey);
+        } catch (cryptoError) {
+            console.error('Decryption failed for password:', cryptoError);
+            alert('Failed to decrypt password. This may indicate corrupted data or a key mismatch.');
+            return;
+        }
         
         // Populate the record form
         document.getElementById('saveWebsite').value = password.website;
@@ -933,35 +935,44 @@ async function handleSavePassword() {
 
     try {
         // Encrypt password on client side
-        const encryptedPassword = await CryptoManager.encrypt(password, encryptionKey);
+        let encryptedPassword;
+        try {
+            encryptedPassword = await CryptoManager.encrypt(password, encryptionKey);
+        } catch (cryptoError) {
+            errorEl.textContent = 'Encryption failed. Please try logging out and back in.';
+            console.error('Encryption error:', cryptoError);
+            return;
+        }
         
         // If updating an existing record, delete the old one first
         if (currentRecordId) {
-            await fetch(`${API_BASE_URL}/api/vault/${currentRecordId}`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${authToken}`
-                }
+            const deleteResponse = await chrome.runtime.sendMessage({
+                action: 'vault:delete',
+                data: { passwordId: currentRecordId }
             });
+
+            if (!deleteResponse.success && deleteResponse.isAuthError) {
+                await handleLogout();
+                return;
+            }
         }
         
-        const response = await fetch(`${API_BASE_URL}/api/vault/save`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`
-            },
-            body: JSON.stringify({
+        const response = await chrome.runtime.sendMessage({
+            action: 'vault:save',
+            data: {
                 website,
                 username,
-                password: encryptedPassword // Send encrypted
-            })
+                password: encryptedPassword
+            }
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.detail || 'Failed to save password');
+        if (!response.success) {
+            // Handle auth errors by logging out
+            if (response.isAuthError) {
+                await handleLogout();
+                return;
+            }
+            throw new Error(response.error);
         }
 
         // Clear form and go back to vault
