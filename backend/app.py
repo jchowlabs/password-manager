@@ -1,10 +1,11 @@
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 import secrets
 import string
 import os
+import logging
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, UTC
 from contextlib import asynccontextmanager
@@ -21,6 +22,13 @@ from slowapi.errors import RateLimitExceeded
 # Load environment variables
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 ####################################################################################################
 # APPLICATION LIFESPAN MANAGEMENT
 ####################################################################################################
@@ -28,11 +36,11 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize application on startup."""
-    print("[STARTUP] Initializing Password Manager API...")
+    logger.info("Initializing Password Manager API...")
     create_dynamodb_tables()
-    print("[STARTUP] DynamoDB tables ready")
+    logger.info("DynamoDB tables ready")
     yield
-    print("[SHUTDOWN] Password Manager API shutting down...")
+    logger.info("Password Manager API shutting down...")
 
 ####################################################################################################
 # CORE APPLICATION CONFIGURATION
@@ -132,9 +140,9 @@ def create_dynamodb_tables():
                 ],
                 ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
             )
-            print(f"[DB] Created table: {DYNAMODB_USER_TABLE}")
+            logger.info(f"Created table: {DYNAMODB_USER_TABLE}")
         except Exception as e:
-            print(f"[DB] Error creating {DYNAMODB_USER_TABLE}: {e}")
+            logger.error(f"Error creating {DYNAMODB_USER_TABLE}: {e}")
     
     # Passwords table: Store encrypted password entries
     if DYNAMODB_PASSWORDS_TABLE not in existing_tables:
@@ -151,9 +159,9 @@ def create_dynamodb_tables():
                 ],
                 ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
             )
-            print(f"[DB] Created table: {DYNAMODB_PASSWORDS_TABLE}")
+            logger.info(f"Created table: {DYNAMODB_PASSWORDS_TABLE}")
         except Exception as e:
-            print(f"[DB] Error creating {DYNAMODB_PASSWORDS_TABLE}: {e}")
+            logger.error(f"Error creating {DYNAMODB_PASSWORDS_TABLE}: {e}")
 
 ####################################################################################################
 # DYNAMODB MODEL CLASSES
@@ -462,7 +470,7 @@ def send_email_ses(recipient_email: str, subject: str, html_content: str):
         )
         return response
     except ClientError as e:
-        print(f"[SES] Error sending email: {e}")
+        logger.error(f"Error sending email via SES: {e}")
         raise
 
 def generate_verification_code() -> str:
@@ -578,20 +586,20 @@ def get_password_reset_template(code: str) -> str:
 
 class UserSignup(BaseModel):
     email: EmailStr
-    password: str
-    encryption_salt: str  # Base64-encoded salt for client-side encryption
+    password: str = Field(..., min_length=8, max_length=128)
+    encryption_salt: str = Field(..., min_length=16)  # Base64-encoded salt for client-side encryption
 
 class UserLogin(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=1, max_length=128)
 
 class ForgotPassword(BaseModel):
     email: EmailStr
 
 class ResetPassword(BaseModel):
     email: EmailStr
-    code: str
-    new_password: str
+    code: str = Field(..., min_length=6, max_length=6)
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 class Token(BaseModel):
     access_token: str
@@ -604,12 +612,12 @@ class LoginSession(BaseModel):
     encryption_salt: Optional[str] = None
 
 class PasswordEntry(BaseModel):
-    website: str
-    username: str
-    password: str
+    website: str = Field(..., min_length=1, max_length=500)
+    username: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=1)  # Encrypted password
 
 class PasswordGenerate(BaseModel):
-    length: int = 16
+    length: int = Field(default=16, ge=8, le=128)
     include_uppercase: bool = True
     include_lowercase: bool = True
     include_digits: bool = True
@@ -697,12 +705,12 @@ async def get_current_user_required(current_user = Depends(get_current_user)):
 
 class VerifyEmail(BaseModel):
     email: EmailStr
-    code: str
+    code: str = Field(..., min_length=6, max_length=6)
 
 class LoginVerify(BaseModel):
     email: EmailStr
-    code: str
-    session_token: str
+    code: str = Field(..., min_length=6, max_length=6)
+    session_token: str = Field(..., min_length=1)
 
 ####################################################################################################
 # FASTAPI ROUTES - AUTHENTICATION
@@ -740,7 +748,7 @@ async def signup(request: Request, user: UserSignup):
             html_content=get_email_verification_template(verification_code)
         )
     except Exception as e:
-        print(f"[ERROR] Failed to send verification email: {e}")
+        logger.error(f"Failed to send verification email to {user.email}: {e}")
         # Continue anyway - user can request resend
     
     return {
@@ -826,7 +834,7 @@ async def login(request: Request, user: UserLogin):
             html_content=get_login_verification_template(login_code)
         )
     except Exception as e:
-        print(f"[ERROR] Failed to send login verification email: {e}")
+        logger.error(f"Failed to send login verification email to {user.email}: {e}")
         raise HTTPException(status_code=500, detail="Failed to send verification code")
     
     return {
@@ -874,13 +882,13 @@ async def test_reload():
 @limiter.limit("3/hour")  # 3 password reset requests per hour
 async def forgot_password(request: Request, data: ForgotPassword):
     """Send password reset code to user's email"""
-    print(f"[DEBUG] Forgot password endpoint called for email: {data.email}")
+    logger.info(f"Password reset requested for email: {data.email}")
     # Get user from database
     db_user = DynamoDBUser.get_by_email(data.email)
     
     if not db_user:
         # Don't reveal if email exists or not for security
-        print(f"[DEBUG] User not found in database for email: {data.email}")
+        logger.warning(f"Password reset requested for non-existent email: {data.email}")
         return {"message": "If the email exists, a reset code will be sent"}
     
     # Allow password reset even for unverified accounts
@@ -898,7 +906,7 @@ async def forgot_password(request: Request, data: ForgotPassword):
             html_content=get_password_reset_template(reset_code)
         )
     except Exception as e:
-        print(f"[ERROR] Failed to send password reset email: {e}")
+        logger.error(f"Failed to send password reset email to {data.email}: {e}")
         raise HTTPException(status_code=500, detail="Failed to send reset code")
     
     return {"message": "Reset code sent successfully. Please check your email."}
